@@ -1,0 +1,160 @@
+# Close calendar: the 12 close tasks of the monthly close.
+#
+# A task is COMPLETE for a period when:
+#   1. every control in `controls` has result PASS or RESOLVED for that period in
+#      the latest run_controls run (exceptions within tolerance, or every
+#      exception over tolerance carries an approved disposition), AND
+#   2. if `signoff` is set, a sign-off by that role exists in review state
+#      (Lakebase -> meta_review_actions), made after the controls became green.
+# The completion time is the later of the two. Nothing else completes a task:
+# there is no manual status field.
+#
+# Offsets are close days relative to T, the last calendar day of the month:
+#   T+1 = the first business day after month end, T-2 = two business days before T.
+#   due_offset_bd          continuous-close plan (the commitment; drives the planned burndown)
+#   traditional_due_bd     the pre-automation plan (for the "before" comparison)
+#   earliest_offset_bd     the first close day the task can complete. Pre-close
+#                          tasks can finish while the month is still open; period-end
+#                          tasks need the month's data to be complete.
+#
+# Days to close = the close day on which CLS-12 completes.
+
+version: 3
+target_days_to_close: 3          # continuous-close commitment (T+3)
+north_star_days_to_close: 1      # continuous close
+traditional_days_to_close: 8     # FY2025 baseline
+
+tasks:
+  - task_code: CLS-01
+    name: Journal entry review
+    workstream: Journal Entries
+    owner_role: Senior Accountant
+    controls: [JET-01, JET-02, JET-03, JET-04, JET-05, SLR-04]
+    signoff: reviewer
+    due_offset_bd: -1
+    traditional_due_bd: 3
+    earliest_offset_bd: -10
+    pre_close: true
+
+  - task_code: CLS-02
+    name: User access review (ITGC)
+    workstream: Access & ITGC
+    owner_role: IT Security Engineer
+    controls: [PAM-01, PAM-02, PAM-03, PAM-04]
+    signoff: reviewer
+    due_offset_bd: -3
+    traditional_due_bd: 5
+    earliest_offset_bd: -10
+    pre_close: true
+
+  - task_code: CLS-03
+    name: Data-quality checks
+    workstream: Data Quality
+    owner_role: Controller
+    controls: [DQ-01, DQ-02, DQ-03]
+    signoff: null                 # automated: completes when the checks are green
+    due_offset_bd: -1
+    traditional_due_bd: 2
+    earliest_offset_bd: -10
+    pre_close: true
+
+  - task_code: CLS-04
+    name: Bank reconciliation
+    workstream: Reconciliation
+    owner_role: Treasury Analyst
+    controls: [CASH-01, CASH-02, CASH-03, CASH-04]
+    signoff: reviewer
+    due_offset_bd: 1
+    traditional_due_bd: 3
+    earliest_offset_bd: 1
+    pre_close: false
+
+  - task_code: CLS-05
+    name: AP subledger tie-out
+    workstream: Subledger Close
+    owner_role: AP Specialist
+    controls: [SLR-01, SLR-05]
+    signoff: reviewer
+    due_offset_bd: 1
+    traditional_due_bd: 2
+    earliest_offset_bd: 1
+    pre_close: false
+
+  - task_code: CLS-06
+    name: AR subledger tie-out
+    workstream: Subledger Close
+    owner_role: AR Specialist
+    controls: [SLR-02]
+    signoff: null                 # automated tie-out
+    due_offset_bd: 1
+    traditional_due_bd: 2
+    earliest_offset_bd: 1
+    pre_close: false
+
+  - task_code: CLS-07
+    name: Payroll journal and tie-out
+    workstream: Subledger Close
+    owner_role: Payroll Accountant
+    controls: [SLR-03]
+    signoff: null                 # automated tie-out
+    due_offset_bd: 1
+    traditional_due_bd: 3
+    earliest_offset_bd: 1
+    pre_close: false
+
+  - task_code: CLS-08
+    name: Accruals and prepaids posted
+    workstream: Journal Entries
+    owner_role: Accountant
+    controls: []
+    signoff: preparer             # manual task: completed by the preparer's sign-off
+    due_offset_bd: 1
+    traditional_due_bd: 2
+    earliest_offset_bd: 0
+    pre_close: false
+
+  - task_code: CLS-09
+    name: Trial balance and GAAP integrity
+    workstream: Reporting
+    owner_role: Controller
+    controls: [FSC-01, FSC-02, FSC-03, FSC-04]
+    signoff: null                 # automated integrity checks
+    due_offset_bd: 2
+    traditional_due_bd: 5
+    earliest_offset_bd: 1
+    pre_close: false
+
+  - task_code: CLS-10
+    name: Flux analysis and variance commentary
+    workstream: Reporting
+    owner_role: Controller
+    controls: [FPA-01, FPA-02, FPA-03, FPA-04]
+    signoff: reviewer
+    due_offset_bd: 2
+    traditional_due_bd: 6
+    earliest_offset_bd: 1
+    pre_close: false
+
+  - task_code: CLS-11
+    name: Financial statements and management pack
+    workstream: Reporting
+    owner_role: Controller
+    controls: []
+    depends_on: [CLS-09, CLS-10]
+    signoff: reviewer
+    due_offset_bd: 3
+    traditional_due_bd: 7
+    earliest_offset_bd: 1
+    pre_close: false
+
+  - task_code: CLS-12
+    name: Controller final review and GO/NO-GO
+    workstream: Review & Approval
+    owner_role: Controller
+    controls: [PLT-01]
+    depends_on: [CLS-01, CLS-02, CLS-03, CLS-04, CLS-05, CLS-06, CLS-07, CLS-08, CLS-09, CLS-10, CLS-11]
+    signoff: controller
+    due_offset_bd: 3
+    traditional_due_bd: 8
+    earliest_offset_bd: 1
+    pre_close: false

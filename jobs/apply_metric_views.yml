@@ -1,0 +1,32 @@
+resources:
+  jobs:
+    apply_metric_views:
+      name: fin-recon-observability-apply-metric-views-${bundle.target}
+      description: >
+        Create or refresh the governed metric layer (gold_mv_close,
+        gold_mv_control_health, gold_mv_exceptions, gold_mv_reconciliations,
+        gold_mv_journal_entries, gold_mv_access_risk, gold_mv_financials) and
+        apply UC tags. Metric views are not valid Lakeflow pipeline datasets,
+        so they are applied here after the pipeline and the first
+        run_controls (two views source the meta_ run ledger). Idempotent
+        (CREATE OR REPLACE). Ends with headline-KPI assertions that fail the
+        job if a KPI is null or out of range.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - pyyaml>=6.0
+      tasks:
+        - task_key: apply_metric_views
+          environment_key: default
+          notebook_task:
+            notebook_path: ../metric_views/apply_metric_views.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+      queue:
+        enabled: true

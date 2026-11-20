@@ -1,0 +1,123 @@
+# M2 Subledger-to-GL: Oracle AP, Salesforce Billing AR, Workday payroll vs GL control accounts.
+module: M2
+module_name: Subledger-to-GL
+slice:
+  sources: [oracle/ap_invoices_all_*.csv, oracle/ap_checks_all_*.csv, oracle/poz_suppliers.csv,
+            salesforce/Account.json, salesforce/blng__Invoice__c_*.json, salesforce/blng__Payment__c_*.json,
+            workday/payroll_results_*.parquet]
+  pipelines: [pipelines/m2_subledger]
+  tables_owned: [bronze_oracle_ap_invoices_all, bronze_oracle_ap_checks_all, bronze_oracle_poz_suppliers,
+                 bronze_sfdc_account, bronze_sfdc_blng__invoice__c, bronze_sfdc_blng__payment__c,
+                 bronze_workday_payroll_results, silver_ap_invoice, silver_ap_payment, silver_supplier, silver_customer,
+                 silver_ar_invoice, silver_ar_payment, silver_payroll_result, gold_m2_subledger_recon,
+                 gold_m2_population, gold_m2_exceptions]
+controls:
+  - control_id: SLR-01
+    version: 1
+    title: AP subledger ties to the GL AP control account
+    objective: Open AP items in Oracle Payables equal the balance of GL account 20000 per entity at each month end, within the greater of 0.1% and USD 1,000.
+    risk_ids: [R2]
+    key_control: true
+    assertions: [completeness, accuracy]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: AP Specialist
+    population: {dataset: gold_m2_subledger_recon, unit: entity-month, description: AP tie-out per entity and month end}
+    parameters: {tolerance_pct: 0.001, tolerance_usd: 1000}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m2_exceptions}
+    exceptions_dataset: gold_m2_exceptions
+    test_sql_file: pipelines/m2_subledger/gold/subledger_recon.sql
+    evidence: {policy_ref: POL-FC-01 3.1, documents: []}
+    signoff: {preparer_role: AP Specialist, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 12
+
+  - control_id: SLR-02
+    version: 1
+    title: AR subledger ties to the GL AR control account
+    objective: Open invoices in Salesforce Billing equal the balance of GL account 11000 per entity at each month end, within the greater of 0.1% and USD 1,000.
+    risk_ids: [R2]
+    key_control: true
+    assertions: [completeness, accuracy]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: AR Specialist
+    population: {dataset: gold_m2_subledger_recon, unit: entity-month, description: AR tie-out per entity and month end}
+    parameters: {tolerance_pct: 0.001, tolerance_usd: 1000}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m2_exceptions}
+    exceptions_dataset: gold_m2_exceptions
+    test_sql_file: pipelines/m2_subledger/gold/subledger_recon.sql
+    evidence: {policy_ref: POL-FC-01 3.1, documents: []}
+    signoff: {preparer_role: AR Specialist, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 12
+
+  - control_id: SLR-03
+    version: 2
+    title: Workday payroll cost ties to GL payroll postings
+    objective: Cumulative payroll cost (gross pay plus employer taxes) in Workday equals payroll costing posted to the GL per entity at each month end, within the greater of 0.01% of the month's payroll cost and USD 1,000.
+    risk_ids: [R2]
+    key_control: true
+    assertions: [completeness, accuracy]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: Payroll Accountant
+    population: {dataset: gold_m2_subledger_recon, unit: entity-month, description: Payroll tie-out per entity and month end}
+    parameters: {tolerance_pct: 0.0001, tolerance_usd: 1000}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m2_exceptions}
+    exceptions_dataset: gold_m2_exceptions
+    test_sql_file: pipelines/m2_subledger/gold/subledger_recon.sql
+    evidence: {policy_ref: POL-FC-01 3.1, documents: []}
+    signoff: {preparer_role: Payroll Accountant, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01, change_note: "v2: tolerance on the month's payroll cost (0.01%) instead of cumulative cost (0.1%), which hid monthly breaks"}
+    traditional_sample_size: 12
+
+  - control_id: SLR-04
+    version: 1
+    title: No manual journals to subledger control accounts
+    objective: Control accounts (11000 AR, 20000 AP, 22000 payroll) are only posted by their subledger interfaces.
+    risk_ids: [R2, R3]
+    key_control: true
+    assertions: [occurrence]
+    nature: {type: detective, automation: automated, line_of_defense: 2}
+    lane: management
+    frequency: continuous
+    owner_role: Controller
+    population: {dataset: gold_m2_population, unit: journal, description: Manual and spreadsheet journals}
+    parameters: {control_accounts: "11000,20000,22000"}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m2_exceptions}
+    exceptions_dataset: gold_m2_exceptions
+    test_sql_file: pipelines/m2_subledger/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 3.2, documents: []}
+    signoff: {preparer_role: Senior Accountant, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: SLR-05
+    version: 1
+    title: Large AP invoices backed by a matching supplier invoice
+    objective: AP invoices of USD 750,000 or more in the rolling evidence window have a supplier invoice PDF whose supplier and amount agree with the AP record (fields extracted with ai_extract).
+    risk_ids: [R5]
+    key_control: false
+    assertions: [existence, accuracy]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: continuous
+    owner_role: AP Specialist
+    population: {dataset: gold_m2_population, unit: invoice, description: AP invoices >= USD 750k in the prior and active periods}
+    parameters: {threshold_usd: 750000, evidence_periods: 2}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m2_exceptions}
+    exceptions_dataset: gold_m2_exceptions
+    test_sql_file: pipelines/m2_subledger/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 3.3, documents: [invoices]}
+    signoff: {preparer_role: AP Specialist, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25

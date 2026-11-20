@@ -1,0 +1,185 @@
+# M5 Statements & FP&A: GAAP integrity of the statements built from the GL, and
+# the variance review (management review control) against the Anaplan budget.
+module: M5
+module_name: Financial statements and FP&A
+slice:
+  sources: [anaplan/plan_*.csv, anaplan/plan_phasing.csv]
+  pipelines: [pipelines/m5_statements]
+  tables_owned: [bronze_anaplan_plan, bronze_anaplan_phasing, silver_plan, silver_plan_phasing, silver_m5_variance_base,
+                 gold_fact_statement_lines, gold_fact_variance_lines, gold_m5_population, gold_m5_exceptions]
+controls:
+  - control_id: FSC-01
+    version: 1
+    title: Trial balance balances
+    objective: Cumulative debits equal credits (accounted USD) for each entity at each period end.
+    risk_ids: [R6]
+    key_control: true
+    assertions: [accuracy, presentation]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: Controller
+    population: {dataset: gold_fact_statement_lines, unit: entity-month, description: Trial balance per entity and month}
+    parameters: {tolerance_usd: 0.05}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m5_exceptions}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 6.1, documents: []}
+    signoff: {preparer_role: Controller, reviewer_role: CFO, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 12
+
+  - control_id: FSC-02
+    version: 1
+    title: Balance sheet balances (assets = liabilities + equity)
+    objective: Total assets equal total liabilities plus equity (including retained earnings and current results) for each entity at each period end.
+    risk_ids: [R6]
+    key_control: true
+    assertions: [presentation]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: Controller
+    population: {dataset: gold_fact_statement_lines, unit: entity-month, description: Balance sheet per entity and month}
+    parameters: {tolerance_usd: 1.0}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m5_exceptions}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 6.1, documents: []}
+    signoff: {preparer_role: Controller, reviewer_role: CFO, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 12
+
+  - control_id: FSC-03
+    version: 1
+    title: Cash flow ties to balance sheet cash
+    objective: Ending cash on the indirect cash flow statement equals cash on the balance sheet for each entity at each period end.
+    risk_ids: [R6]
+    key_control: true
+    assertions: [presentation]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: Controller
+    population: {dataset: gold_fact_statement_lines, unit: entity-month, description: Cash flow per entity and month}
+    parameters: {tolerance_usd: 1.0}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m5_exceptions}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 6.1, documents: []}
+    signoff: {preparer_role: Controller, reviewer_role: CFO, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 12
+
+  - control_id: FSC-04
+    version: 1
+    title: Net income rolls into retained earnings
+    objective: The retained earnings movement equals net income for the period, for each entity.
+    risk_ids: [R6]
+    key_control: false
+    assertions: [presentation]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: Controller
+    population: {dataset: gold_fact_statement_lines, unit: entity-month, description: Equity roll-forward per entity and month}
+    parameters: {tolerance_usd: 1.0}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m5_exceptions}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 6.1, documents: []}
+    signoff: {preparer_role: Controller, reviewer_role: CFO, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 12
+
+  - control_id: FPA-01
+    version: 1
+    title: Variance inputs complete (actual, budget, prior period, prior year)
+    objective: Every in-scope P&L line has actual, budget, prior-period and prior-year values before variances are reviewed.
+    risk_ids: [R6, R7]
+    key_control: false
+    assertions: [completeness]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: monthly
+    owner_role: Financial Analyst
+    population: {dataset: silver_m5_variance_base, unit: line, description: P&L lines x entity x month (2026 onward)}
+    parameters: {}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: expectation, job: run_controls, task: test_update, dataset: silver_m5_variance_base, expectation: ctl_fpa_01}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/silver/variance_base.sql
+    evidence: {policy_ref: POL-FC-01 6.2, documents: []}
+    signoff: {preparer_role: Financial Analyst, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 0
+
+  - control_id: FPA-02
+    version: 1
+    title: Material variances identified (management review)
+    objective: Lines whose variance to budget exceeds both USD 250,000 and 10% of budget, or whose actual is more than 2.5 standard deviations from its trailing pattern, are identified for explanation. The active month uses a month-to-date phased budget (continuous flux).
+    risk_ids: [R6]
+    key_control: false
+    assertions: [presentation]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: daily
+    owner_role: Controller
+    population: {dataset: gold_fact_variance_lines, unit: line, description: P&L lines x entity x month}
+    parameters: {materiality_usd: 250000, materiality_pct: 0.10, z_threshold: 2.5}
+    tolerance: {max_exceptions: null}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m5_exceptions}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/gold/variance_lines.sql
+    evidence: {policy_ref: POL-FC-01 6.2, documents: []}
+    signoff: {preparer_role: Financial Analyst, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 0
+
+  - control_id: FPA-03
+    version: 1
+    title: Material variances explained by the controller
+    objective: Every material variance carries a controller explanation (management review control). Internal Audit tests that the review operated, rather than relying on the close tool's task status.
+    risk_ids: [R6]
+    key_control: true
+    assertions: [presentation]
+    nature: {type: detective, automation: it_dependent_manual, line_of_defense: 3}
+    lane: assurance
+    frequency: monthly
+    owner_role: Internal Audit
+    population: {dataset: gold_fact_variance_lines, unit: line, description: Material variance lines}
+    parameters: {explain_within_bd: 5}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m5_exceptions}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 6.2, documents: []}
+    signoff: {preparer_role: Internal Audit Senior, reviewer_role: Audit Manager, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: FPA-04
+    version: 1
+    title: Explanations acknowledged by an independent reviewer
+    objective: Each variance explanation is acknowledged by someone other than its author (the independent test of the management review control).
+    risk_ids: [R6]
+    key_control: true
+    assertions: [presentation]
+    nature: {type: detective, automation: it_dependent_manual, line_of_defense: 3}
+    lane: assurance
+    frequency: monthly
+    owner_role: Internal Audit
+    population: {dataset: gold_fact_variance_lines, unit: line, description: Explained material variance lines}
+    parameters: {}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m5_exceptions}
+    exceptions_dataset: gold_m5_exceptions
+    test_sql_file: pipelines/m5_statements/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 6.3, documents: []}
+    signoff: {preparer_role: Internal Audit Senior, reviewer_role: Audit Manager, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25

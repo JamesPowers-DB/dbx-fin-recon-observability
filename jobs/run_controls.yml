@@ -1,0 +1,144 @@
+resources:
+  jobs:
+    run_controls:
+      name: fin-recon-observability-run-controls-${bundle.target}
+      description: >
+        THE control execution job. Every checklist item and close task gets its
+        status from a run of this job; nothing else computes pass/fail.
+
+          open_run              ledger row (RUNNING) with job/run ids + trigger
+          publish_controls      controls/*.yml -> meta_control_library,
+                                meta_risk_register, meta_close_calendar
+          snapshot_review_state Lakebase review actions -> meta_review_actions
+                                (one-way sync; app never writes UC)
+          test_update           incremental pipeline update: all module tests,
+                                expectations, documents, controls spine
+          record_results        resolve the pipeline update id, copy event-log
+                                metrics, snapshot results + exception log +
+                                close-task status stamped with run ids
+          triage_exceptions     ai_query triage of NEW exceptions
+          gate_controls         PLT-01 monitoring integrity; fails the run on
+                                a gap (unexecuted control, missed planted
+                                exception, ledger != metric view)
+
+        Triggered by setup, by the daily refresh, by simulate_activity, and by
+        the app's Re-run button (app service principal, CAN_MANAGE_RUN).
+        Ledger writes MERGE on run-scoped keys, so repairs are safe.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      parameters:
+        - name: trigger_source
+          default: manual
+        - name: requested_by
+          default: ""
+        - name: reason
+          default: ""
+        # Demo reset (refresh reset_reviews=true): derive the active close afresh,
+        # without carrying completions or reopen counts from earlier runs.
+        - name: rebaseline
+          default: "false"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - --requirement ${workspace.file_path}/requirements.txt
+              - databricks-sdk>=0.81.0   # pinned inline: env fingerprint ignores requirements.txt contents
+              - psycopg[binary]>=3.2
+      tasks:
+        - task_key: open_run
+          environment_key: default
+          notebook_task:
+            notebook_path: ../controls/runtime/open_run.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              job_id: "{{job.id}}"
+              job_run_id: "{{job.run_id}}"
+              trigger_type: "{{job.trigger.type}}"
+              started_at: "{{job.start_time.iso_datetime}}"
+              trigger_source: "{{job.parameters.trigger_source}}"
+              requested_by: "{{job.parameters.requested_by}}"
+              reason: "{{job.parameters.reason}}"
+              pipeline_id: ${resources.pipelines.lakehouse.id}
+
+        - task_key: publish_controls
+          environment_key: default
+          depends_on: [{task_key: open_run}]
+          notebook_task:
+            notebook_path: ../controls/runtime/publish_controls.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              job_run_id: "{{job.run_id}}"
+
+        - task_key: snapshot_review_state
+          environment_key: default
+          depends_on: [{task_key: open_run}]
+          notebook_task:
+            notebook_path: ../controls/runtime/snapshot_review_state.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              lakebase_project: ${var.lakebase_project}
+              job_run_id: "{{job.run_id}}"
+
+        - task_key: test_update
+          depends_on:
+            - task_key: publish_controls
+            - task_key: snapshot_review_state
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+            full_refresh: false
+
+        - task_key: record_results
+          environment_key: default
+          depends_on: [{task_key: test_update}]
+          notebook_task:
+            notebook_path: ../controls/runtime/record_results.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              job_id: "{{job.id}}"
+              job_run_id: "{{job.run_id}}"
+              task_run_id: "{{task.run_id}}"
+              test_update_task_run_id: "{{tasks.test_update.run_id}}"
+              pipeline_id: ${resources.pipelines.lakehouse.id}
+              rebaseline: "{{job.parameters.rebaseline}}"
+
+        - task_key: triage_exceptions
+          environment_key: default
+          depends_on: [{task_key: record_results}]
+          notebook_task:
+            notebook_path: ../ai/triage_exceptions.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              job_run_id: "{{job.run_id}}"
+              endpoint: ${var.triage_endpoint}
+              max_per_run: "400"
+
+        - task_key: gate_controls
+          environment_key: default
+          depends_on: [{task_key: triage_exceptions}]
+          notebook_task:
+            notebook_path: ../controls/runtime/gate_controls.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              job_run_id: "{{job.run_id}}"
+              task_run_id: "{{task.run_id}}"
+      queue:
+        enabled: true
+      permissions:
+        - level: CAN_VIEW
+          group_name: users
+        # App SP: declared here so deploying the app never overrides job ACLs.
+        - level: CAN_MANAGE_RUN
+          service_principal_name: ${resources.apps.audit_workbench.service_principal_client_id}

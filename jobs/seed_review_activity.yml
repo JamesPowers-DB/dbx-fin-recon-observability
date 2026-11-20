@@ -1,0 +1,37 @@
+resources:
+  jobs:
+    seed_review_activity:
+      name: fin-recon-observability-seed-review-activity-${bundle.target}
+      description: >
+        Demo scaffolding: writes the active close's earlier review activity
+        (fictional preparers' proposals and reviewers' approvals, one close-task
+        sign-off) into the Audit Workbench review store (Lakebase). It reaches
+        Unity Catalog the same way a live click does, through
+        run_controls.snapshot_review_state. Never touches an item that already
+        has a review action. Runs in setup and refresh after the lakehouse build.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      parameters:
+        - name: reset
+          default: "false"
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - --requirement ${workspace.file_path}/requirements.txt
+              - databricks-sdk>=0.81.0   # pinned inline: env fingerprint ignores requirements.txt contents
+              - psycopg[binary]>=3.2
+      tasks:
+        - task_key: seed_review_activity
+          environment_key: default
+          notebook_task:
+            notebook_path: ../data/generators/30_review_activity_seed.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              raw_volume: ${var.raw_volume}
+              lakebase_project: ${var.lakebase_project}
+              reset: "{{job.parameters.reset}}"
+              app_name: audit-workbench-${bundle.target}   # literal: a resource reference would cycle (app -> refresh -> seed -> app)

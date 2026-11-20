@@ -1,0 +1,117 @@
+# M3 Journal entry testing: full population of Oracle GL journals.
+module: M3
+module_name: Journal entry testing
+slice:
+  sources: [oracle/gl_je_headers_*.csv, oracle/gl_je_lines_*.csv]
+  pipelines: [pipelines/m3_journals]
+  tables_owned: [silver_m3_journal_flags, gold_fact_journal_entries, gold_m3_benford_by_user, gold_m3_population, gold_m3_exceptions]
+controls:
+  - control_id: JET-01
+    version: 1
+    title: Preparer is not the approver of a manual journal
+    objective: No manual or spreadsheet journal is approved by the user who created it.
+    risk_ids: [R3, R4]
+    key_control: true
+    assertions: [occurrence]
+    nature: {type: preventive, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: continuous
+    owner_role: Controller
+    population: {dataset: silver_m3_journal_flags, unit: journal, description: Manual and spreadsheet journals}
+    parameters: {}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: expectation, job: run_controls, task: test_update, dataset: silver_m3_journal_flags, expectation: ctl_jet_01}
+    exceptions_dataset: gold_m3_exceptions
+    test_sql_file: pipelines/m3_journals/silver/journal_test_flags.sql
+    evidence: {policy_ref: POL-FC-01 4.1, documents: []}
+    signoff: {preparer_role: Senior Accountant, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: JET-02
+    version: 1
+    title: Manual journals over threshold approved before posting
+    objective: Manual journals above USD 250,000 carry an approval dated before the posting time.
+    risk_ids: [R3]
+    key_control: true
+    assertions: [occurrence]
+    nature: {type: preventive, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: continuous
+    owner_role: Controller
+    population: {dataset: silver_m3_journal_flags, unit: journal, description: Manual journals above the threshold}
+    parameters: {threshold_usd: 250000}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m3_exceptions}
+    exceptions_dataset: gold_m3_exceptions
+    test_sql_file: pipelines/m3_journals/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 4.2, documents: []}
+    signoff: {preparer_role: Senior Accountant, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: JET-03
+    version: 1
+    title: Weekend and after-hours manual postings reviewed
+    objective: Manual journals posted by people (not system accounts) on non-business days or between 21:00 and 06:00 are exceptions for review.
+    risk_ids: [R3]
+    key_control: false
+    assertions: [occurrence]
+    nature: {type: detective, automation: automated, line_of_defense: 2}
+    lane: management
+    frequency: continuous
+    owner_role: Controller
+    population: {dataset: silver_m3_journal_flags, unit: journal, description: Manual journals posted by people}
+    parameters: {after_hour: 21, before_hour: 6}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m3_exceptions}
+    exceptions_dataset: gold_m3_exceptions
+    test_sql_file: pipelines/m3_journals/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 4.3, documents: []}
+    signoff: {preparer_role: Senior Accountant, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: JET-04
+    version: 1
+    title: Potential duplicate journals investigated
+    objective: Manual journals with the same entity, debit account and amount within three days of an earlier journal are exceptions.
+    risk_ids: [R3]
+    key_control: false
+    assertions: [occurrence, accuracy]
+    nature: {type: detective, automation: automated, line_of_defense: 2}
+    lane: management
+    frequency: continuous
+    owner_role: Controller
+    population: {dataset: silver_m3_journal_flags, unit: journal, description: Manual journals}
+    parameters: {window_days: 3}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m3_exceptions}
+    exceptions_dataset: gold_m3_exceptions
+    test_sql_file: pipelines/m3_journals/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 4.4, documents: []}
+    signoff: {preparer_role: Senior Accountant, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: JET-05
+    version: 1
+    title: Statistical outliers in manual journals (KRI)
+    objective: Round-amount manual journals of USD 100k or more, and journals more than three standard deviations above their account's normal size, are surfaced for Internal Audit analytics. Benford first-digit deviation by preparer is tracked as a KRI.
+    risk_ids: [R3]
+    key_control: false
+    assertions: [occurrence]
+    nature: {type: detective, automation: automated, line_of_defense: 3}
+    lane: assurance
+    frequency: continuous
+    owner_role: Internal Audit
+    population: {dataset: silver_m3_journal_flags, unit: journal, description: Manual journals}
+    parameters: {round_min_usd: 100000, z_threshold: 3.0}
+    tolerance: {max_exceptions: null}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m3_exceptions}
+    exceptions_dataset: gold_m3_exceptions
+    test_sql_file: pipelines/m3_journals/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 4.5, documents: []}
+    signoff: {preparer_role: Internal Audit Senior, reviewer_role: Audit Manager, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 0

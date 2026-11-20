@@ -1,0 +1,27 @@
+resources:
+  # The bundle does NOT create the catalog. It deploys into var.catalog, which
+  # must already exist (Default Storage metastores require MANAGED LOCATION on
+  # API-created catalogs, so bundle-created catalogs fail).
+  schemas:
+    fin_recon_observability:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: >
+        Continuous close and audit assurance demo (synthetic data, fictional
+        company Corvane Technologies). One schema for every layer:
+        bronze_<source>_* (source-shaped raw), silver_* (conformed entities),
+        gold_* (facts, dims, control tests; gold_mv_* metric views),
+        meta_* (control library, run ledger, close status, anchors, event log),
+        ml_* (AI triage outputs). Source files land in the ${var.raw_volume} volume.
+
+  volumes:
+    raw_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: ${var.raw_volume}
+      volume_type: MANAGED
+      comment: >
+        Landing zone, one folder per source system: oracle/ (CSV),
+        salesforce/ (JSON lines), workday/ (Parquet), anaplan/ (CSV),
+        bank/ (camt.053 XML), close_tool/ (CSV), docs/ (PDF evidence and policy).
+        Generators write here; bronze streaming tables read from here.

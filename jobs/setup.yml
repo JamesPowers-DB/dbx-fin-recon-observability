@@ -1,0 +1,87 @@
+resources:
+  jobs:
+    setup:
+      name: fin-recon-observability-setup-${bundle.target}
+      description: >
+        One-command install chain (safe to re-run). Each step is also a
+        standalone job.
+
+          1. generate_data        synthesize + reconcile source files (all systems)
+          2. publish_controls     control library, risk register, close calendar
+                                  (the pipeline reads them)
+          3. build_lakehouse      FULL pipeline refresh (bronze is streaming)
+          4. seed_review_activity earlier-this-month review activity (demo, Lakebase)
+          5. run_controls         first control run: ledger, close status,
+                                  AI triage, monitoring-integrity gate
+          6. apply_metric_views   governed metric layer + KPI assertions
+          7. provision_genie      Genie space by title
+          8. grant_app_sp         app SP UC grants + Genie CAN_RUN
+
+        The append-only run ledger survives re-runs; regenerated data
+        re-baselines everything else.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - --requirement ${workspace.file_path}/requirements.txt
+              - databricks-sdk>=0.81.0   # pinned inline: env fingerprint ignores requirements.txt contents
+              - psycopg[binary]>=3.2
+      tasks:
+        - task_key: generate_data
+          run_job_task:
+            job_id: ${resources.jobs.generate_data.id}
+
+        - task_key: publish_controls
+          depends_on: [{task_key: generate_data}]
+          environment_key: default
+          notebook_task:
+            notebook_path: ../controls/runtime/publish_controls.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: build_lakehouse
+          depends_on: [{task_key: publish_controls}]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+            full_refresh: true
+          # A run_controls pipeline update may be in flight (the pipeline runs one update at a time):
+          # retry instead of failing the chain.
+          max_retries: 3
+          min_retry_interval_millis: 300000
+          retry_on_timeout: true
+
+        - task_key: seed_review_activity
+          depends_on: [{task_key: build_lakehouse}]
+          run_job_task:
+            job_id: ${resources.jobs.seed_review_activity.id}
+
+        - task_key: run_controls
+          depends_on: [{task_key: seed_review_activity}]
+          run_job_task:
+            job_id: ${resources.jobs.run_controls.id}
+            job_parameters:
+              trigger_source: setup
+              requested_by: ${workspace.current_user.userName}
+              reason: Install
+
+        - task_key: apply_metric_views
+          depends_on: [{task_key: run_controls}]
+          run_job_task:
+            job_id: ${resources.jobs.apply_metric_views.id}
+
+        - task_key: provision_genie
+          depends_on: [{task_key: apply_metric_views}]
+          run_job_task:
+            job_id: ${resources.jobs.provision_genie.id}
+
+        - task_key: grant_app_sp
+          depends_on: [{task_key: provision_genie}]
+          run_job_task:
+            job_id: ${resources.jobs.grant_app_sp.id}
+      queue:
+        enabled: true

@@ -1,0 +1,9 @@
+# Generator + runtime dependencies for serverless job environments.
+# When adding a package, also pin it inline in the job's environment spec:
+# the serverless env fingerprint ignores this file's contents.
+polars>=1.20
+# numpy: use the serverless environment (v4) build; upgrading it breaks Spark init.
+fpdf2>=2.8
+pyyaml>=6.0
+psycopg[binary]>=3.2
+databricks-sdk>=0.81.0

@@ -1,0 +1,135 @@
+resources:
+  jobs:
+    generate_data:
+      name: fin-recon-observability-generate-data-${bundle.target}
+      description: >
+        Synthesize source-shaped files for Corvane Technologies (fictional) into
+        /Volumes/${var.catalog}/${var.schema}/${var.raw_volume}/, one folder per
+        source system: oracle/, salesforce/, workday/, anaplan/, bank/,
+        close_tool/, docs/.
+
+        Order: period anchors (meta_dim_period_anchors) -> reference masters
+        -> subledgers (Salesforce Billing, Workday payroll, Oracle AP) ->
+        Oracle GL (summary journals from the subledgers, manual journals,
+        opening balances) -> bank camt.053 -> Anaplan plan -> prior close-tool
+        history -> evidence PDFs -> reconciliation gate. Planted control
+        exceptions are registered in meta_planted_exceptions (demo-only ground
+        truth). The gate fails the job if anchors drift beyond tolerance_pct,
+        journals do not balance, the balance sheet does not balance, or a
+        lineage key does not resolve.
+
+        Deterministic (MASTER_SEED) and idempotent: wipes and rewrites the
+        source folders, never emits future-dated rows.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - --requirement ${workspace.file_path}/requirements.txt
+              - databricks-sdk>=0.81.0   # pinned inline: env fingerprint ignores requirements.txt contents
+              - psycopg[binary]>=3.2
+      tasks:
+        - task_key: seed_period_anchors
+          environment_key: default
+          notebook_task:
+            notebook_path: ../data/generators/01_period_anchors_seed.py
+            source: WORKSPACE
+            base_parameters: &gen_params
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              raw_volume: ${var.raw_volume}
+
+        - task_key: generate_reference_masters
+          environment_key: default
+          depends_on: [{task_key: seed_period_anchors}]
+          notebook_task:
+            notebook_path: ../data/generators/02_reference_masters.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_salesforce_billing
+          environment_key: default
+          depends_on: [{task_key: generate_reference_masters}]
+          notebook_task:
+            notebook_path: ../data/generators/03_salesforce_billing.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_workday_payroll
+          environment_key: default
+          depends_on: [{task_key: generate_reference_masters}]
+          notebook_task:
+            notebook_path: ../data/generators/04_workday_payroll.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_oracle_ap
+          environment_key: default
+          depends_on: [{task_key: generate_reference_masters}]
+          notebook_task:
+            notebook_path: ../data/generators/05_oracle_ap.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_oracle_gl
+          environment_key: default
+          depends_on:
+            - task_key: generate_salesforce_billing
+            - task_key: generate_workday_payroll
+            - task_key: generate_oracle_ap
+          notebook_task:
+            notebook_path: ../data/generators/06_oracle_gl.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_bank_camt053
+          environment_key: default
+          depends_on: [{task_key: generate_oracle_gl}]
+          notebook_task:
+            notebook_path: ../data/generators/07_bank_camt053.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_anaplan_plan
+          environment_key: default
+          depends_on: [{task_key: generate_oracle_gl}]
+          notebook_task:
+            notebook_path: ../data/generators/08_anaplan_plan.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_close_tool_history
+          environment_key: default
+          depends_on:
+            - task_key: generate_bank_camt053
+            - task_key: generate_anaplan_plan
+          notebook_task:
+            notebook_path: ../data/generators/09_close_tool_history.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: generate_documents_pdfs
+          environment_key: default
+          depends_on: [{task_key: generate_bank_camt053}]
+          notebook_task:
+            notebook_path: ../data/generators/10_documents_pdfs.py
+            source: WORKSPACE
+            base_parameters: *gen_params
+
+        - task_key: reconcile_tie_out
+          environment_key: default
+          depends_on:
+            - task_key: generate_close_tool_history
+            - task_key: generate_documents_pdfs
+          notebook_task:
+            notebook_path: ../data/generators/99_reconcile.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              raw_volume: ${var.raw_volume}
+              tolerance_pct: "2.0"
+      queue:
+        enabled: true

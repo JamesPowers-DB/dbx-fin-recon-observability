@@ -1,0 +1,94 @@
+resources:
+  apps:
+    audit_workbench:
+      name: audit-workbench-${bundle.target}
+      description: >
+        Audit Workbench for continuous close: control checklist bound to job
+        runs, exception review with AI triage and four-eyes sign-off, close
+        burndown, financial statements, data-quality lineage. Reads Unity
+        Catalog metric views via OBO auth; human review state in Lakebase.
+      source_code_path: ../apps/audit-workbench
+
+      # Env vars live here (not in app.yaml) so bundle variables and resource
+      # ids are substituted at deploy time. value_from resolves the app
+      # resource bindings below by name.
+      config:
+        command:
+          - uvicorn
+          - backend.main:app
+          - --host
+          - 0.0.0.0
+          - --port
+          - "$DATABRICKS_APP_PORT"
+        env:
+          - name: DATABRICKS_CATALOG
+            value: ${var.catalog}
+          - name: DATABRICKS_SCHEMA
+            value: ${var.schema}
+          - name: DATABRICKS_RAW_VOLUME
+            value: ${var.raw_volume}
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: warehouse
+          - name: GENIE_SPACE_TITLE
+            value: Fin Recon Observability - Audit & Controls
+          - name: DATABRICKS_SERVING_ENDPOINT_NAME
+            value: ${var.agent_endpoint}
+          - name: RUN_CONTROLS_JOB_ID
+            value_from: run-controls-job
+          - name: SIMULATE_ACTIVITY_JOB_ID
+            value_from: simulate-activity-job
+          - name: REFRESH_JOB_ID
+            value_from: refresh-job
+          - name: LAKEHOUSE_PIPELINE_ID
+            value: ${resources.pipelines.lakehouse.id}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.continuous_close.id}
+          # Workspace path of the deployed bundle files: checklist deep links to
+          # the control definition and test SQL that ran.
+          - name: BUNDLE_FILE_PATH
+            value: ${workspace.file_path}
+          - name: TRIAGE_ENDPOINT_NAME
+            value: ${var.triage_endpoint}
+          - name: LAKEBASE_ENDPOINT
+            value: projects/${resources.postgres_projects.audit_lakebase.project_id}/branches/production/endpoints/primary
+          # Startup self-check (backend/selfcheck.py): off | read | trigger.
+          - name: APP_SELF_CHECK
+            value: read
+
+      resources:
+        - name: warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        # The SP triggers and reads runs (no OBO scope exists for Jobs).
+        - name: run-controls-job
+          job:
+            id: ${resources.jobs.run_controls.id}
+            permission: CAN_MANAGE_RUN
+        - name: simulate-activity-job
+          job:
+            id: ${resources.jobs.simulate_activity.id}
+            permission: CAN_MANAGE_RUN
+        - name: refresh-job
+          job:
+            id: ${resources.jobs.refresh.id}
+            permission: CAN_VIEW
+        # Default database of the bundle-managed Lakebase project. The binding
+        # creates the SP's Postgres role (CONNECT + CREATE) and injects PG* env.
+        - name: postgres
+          postgres:
+            branch: projects/${resources.postgres_projects.audit_lakebase.project_id}/branches/production
+            database: projects/${resources.postgres_projects.audit_lakebase.project_id}/branches/production/databases/databricks-postgres
+            permission: CAN_CONNECT_AND_CREATE
+        - name: agent-endpoint
+          serving_endpoint:
+            name: ${var.agent_endpoint}
+            permission: CAN_QUERY
+
+      # OBO scopes: UC reads as the user, Genie, the agent's FMAPI calls, and
+      # evidence PDFs from the volume.
+      user_api_scopes:
+        - sql
+        - genie
+        - model-serving
+        - files

@@ -1,0 +1,82 @@
+resources:
+  jobs:
+    refresh:
+      name: fin-recon-observability-refresh-${bundle.target}
+      description: >
+        Daily continuous-monitoring refresh so an unattended demo never goes
+        stale and the active close keeps progressing. Generators roll forward
+        to today (never future-dated). Chain: generate -> FULL pipeline
+        refresh -> seed earlier review activity -> run_controls
+        (trigger_source=schedule) -> validate. reset_reviews=true also clears
+        the active close's review actions first (demo reset).
+        One-time provisioning (metric views, Genie, grants) is not here.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      parameters:
+        - name: reset_reviews
+          default: "false"
+      schedule:
+        quartz_cron_expression: "0 0 5 ? * MON-FRI"   # sec min hour dom month dow
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - --requirement ${workspace.file_path}/requirements.txt
+              - databricks-sdk>=0.81.0   # pinned inline: env fingerprint ignores requirements.txt contents
+              - psycopg[binary]>=3.2
+      tasks:
+        - task_key: generate_data
+          run_job_task:
+            job_id: ${resources.jobs.generate_data.id}
+
+        - task_key: build_lakehouse_full
+          depends_on: [{task_key: generate_data}]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+            full_refresh: true
+          # A run_controls pipeline update may be in flight (the pipeline runs one update at a time):
+          # retry instead of failing the chain.
+          max_retries: 3
+          min_retry_interval_millis: 300000
+          retry_on_timeout: true
+
+        - task_key: seed_review_activity
+          depends_on: [{task_key: build_lakehouse_full}]
+          run_job_task:
+            job_id: ${resources.jobs.seed_review_activity.id}
+            job_parameters:
+              reset: "{{job.parameters.reset_reviews}}"
+
+        - task_key: run_controls
+          depends_on: [{task_key: seed_review_activity}]
+          run_job_task:
+            job_id: ${resources.jobs.run_controls.id}
+            job_parameters:
+              trigger_source: schedule
+              requested_by: scheduler
+              reason: Daily continuous monitoring
+              rebaseline: "{{job.parameters.reset_reviews}}"
+
+        - task_key: validate_output
+          depends_on: [{task_key: run_controls}]
+          environment_key: default
+          notebook_task:
+            notebook_path: ../scripts/validate_refresh_output.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              fact_table: gold_fact_gl_lines
+              date_col: accounting_date
+              freshness_window_days: "5"
+      queue:
+        enabled: true
+      permissions:
+        - level: CAN_VIEW
+          group_name: users
+        # App SP: declared here so deploying the app never overrides job ACLs.
+        - level: CAN_VIEW
+          service_principal_name: ${resources.apps.audit_workbench.service_principal_client_id}

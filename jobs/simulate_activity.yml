@@ -1,0 +1,58 @@
+resources:
+  jobs:
+    simulate_activity:
+      name: fin-recon-observability-simulate-activity-${bundle.target}
+      description: >
+        Live demo driver. Appends ONE intraday batch of new activity to the
+        active close period (timestamps <= now, never future-dated): Oracle
+        journals and AP invoices, Salesforce payments, bank entries, and IAM
+        changes, with a planted anomaly drawn from the scenario deck (for
+        example a self-approved manual journal or an unmatched bank debit).
+        Then runs run_controls so the checklist, exception queue, AI triage,
+        and close burndown update. Streaming bronze picks up the appended
+        files without a full refresh. Triggered by the app's "Simulate new
+        activity" button (app service principal, CAN_MANAGE_RUN).
+      max_concurrent_runs: 1
+      email_notifications: {}
+      parameters:
+        - name: requested_by
+          default: ""
+        - name: scenario
+          default: auto
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - --requirement ${workspace.file_path}/requirements.txt
+              - databricks-sdk>=0.81.0   # pinned inline: env fingerprint ignores requirements.txt contents
+              - psycopg[binary]>=3.2
+      tasks:
+        - task_key: append_activity_batch
+          environment_key: default
+          notebook_task:
+            notebook_path: ../data/generators/40_simulate_activity.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              raw_volume: ${var.raw_volume}
+              scenario: "{{job.parameters.scenario}}"
+              job_run_id: "{{job.run_id}}"
+
+        - task_key: run_controls
+          depends_on: [{task_key: append_activity_batch}]
+          run_job_task:
+            job_id: ${resources.jobs.run_controls.id}
+            job_parameters:
+              trigger_source: simulate
+              requested_by: "{{job.parameters.requested_by}}"
+              reason: "Simulated activity batch"
+      queue:
+        enabled: true
+      permissions:
+        - level: CAN_VIEW
+          group_name: users
+        # App SP: declared here so deploying the app never overrides job ACLs.
+        - level: CAN_MANAGE_RUN
+          service_principal_name: ${resources.apps.audit_workbench.service_principal_client_id}

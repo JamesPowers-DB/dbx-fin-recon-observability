@@ -1,0 +1,1033 @@
+{
+  "datasets": [
+    {
+      "name": "ds_last_close",
+      "displayName": "Last close",
+      "queryLines": [
+        "SELECT MEASURE(days_to_close) AS days_to_close\n",
+        "FROM gold_mv_close WHERE period = date_format(add_months(current_date(), -1), 'yyyy-MM')\n"
+      ]
+    },
+    {
+      "name": "ds_active_close",
+      "displayName": "Active close",
+      "queryLines": [
+        "SELECT MEASURE(projected_days_to_close) AS projected_days_to_close,\n",
+        "       MEASURE(pre_close_completion_pct) AS pre_close_completion_pct, MEASURE(tasks_complete_pct) AS tasks_complete_pct,\n",
+        "       MEASURE(tasks_overdue) AS tasks_overdue\n",
+        "FROM gold_mv_close WHERE period_status = 'ACTIVE'\n"
+      ]
+    },
+    {
+      "name": "ds_close_trend",
+      "displayName": "Days to close by period",
+      "queryLines": [
+        "SELECT period, MEASURE(days_to_close) AS days_to_close,\n",
+        "       MEASURE(pre_close_completion_pct) AS pre_close_completion_pct, MEASURE(target_days_to_close) AS target_days_to_close\n",
+        "FROM gold_mv_close WHERE period_status = 'CLOSED'\n",
+        "GROUP BY period ORDER BY period\n"
+      ]
+    },
+    {
+      "name": "ds_controls_kpi",
+      "displayName": "Controls (latest run)",
+      "queryLines": [
+        "SELECT MEASURE(control_pass_rate) AS control_pass_rate, MEASURE(controls_failed) AS controls_failed,\n",
+        "       MEASURE(records_tested) AS records_tested\n",
+        "FROM gold_mv_control_health WHERE is_latest_run = true AND period = date_format(current_date(), 'yyyy-MM')\n"
+      ]
+    },
+    {
+      "name": "ds_controls_module",
+      "displayName": "Pass rate by module",
+      "queryLines": [
+        "SELECT module, MEASURE(control_pass_rate) AS control_pass_rate, MEASURE(controls_failed) AS controls_failed\n",
+        "FROM gold_mv_control_health WHERE is_latest_run = true AND period = date_format(current_date(), 'yyyy-MM')\n",
+        "GROUP BY module ORDER BY module\n"
+      ]
+    },
+    {
+      "name": "ds_exceptions_kpi",
+      "displayName": "Exceptions (current close)",
+      "queryLines": [
+        "SELECT MEASURE(open_exceptions) AS open_exceptions, MEASURE(ai_triage_coverage_pct) AS ai_triage_coverage_pct,\n",
+        "       MEASURE(critical_open_exceptions) AS critical_open_exceptions\n",
+        "FROM gold_mv_exceptions WHERE period = date_format(current_date(), 'yyyy-MM')\n"
+      ]
+    },
+    {
+      "name": "ds_exceptions_sev",
+      "displayName": "Open exceptions by module and AI severity",
+      "queryLines": [
+        "SELECT module, COALESCE(ai_severity, 'not triaged') AS ai_severity, MEASURE(open_exceptions) AS open_exceptions\n",
+        "FROM gold_mv_exceptions WHERE period = date_format(current_date(), 'yyyy-MM')\n",
+        "GROUP BY ALL ORDER BY module\n"
+      ]
+    },
+    {
+      "name": "ds_recon_kpi",
+      "displayName": "Unreconciled (current close)",
+      "queryLines": [
+        "SELECT MEASURE(unreconciled_amount_usd) AS unreconciled_amount_usd, MEASURE(breaks) AS breaks\n",
+        "FROM gold_mv_reconciliations WHERE period = date_format(current_date(), 'yyyy-MM')\n"
+      ]
+    },
+    {
+      "name": "ds_recon_entity",
+      "displayName": "Unreconciled by entity",
+      "queryLines": [
+        "SELECT entity_code, recon_type, MEASURE(unreconciled_amount_usd) AS unreconciled_amount_usd\n",
+        "FROM gold_mv_reconciliations WHERE period = date_format(current_date(), 'yyyy-MM')\n",
+        "GROUP BY ALL ORDER BY entity_code\n"
+      ]
+    },
+    {
+      "name": "ds_key_failures",
+      "displayName": "Failed key controls",
+      "queryLines": [
+        "SELECT control_id, control_title, MEASURE(exceptions_found) AS exceptions,\n",
+        "       MEASURE(exception_amount_usd) AS exception_amount_usd\n",
+        "FROM gold_mv_control_health WHERE is_latest_run = true AND key_control = true AND result = 'FAIL'\n",
+        "GROUP BY control_id, control_title ORDER BY exception_amount_usd DESC\n"
+      ]
+    },
+    {
+      "name": "ds_variances",
+      "displayName": "Unexplained material variances",
+      "queryLines": [
+        "SELECT period, entity_code, line_name, MEASURE(variance_vs_budget_usd) AS variance_vs_budget_usd\n",
+        "FROM gold_mv_financials WHERE statement = 'IS'\n",
+        "GROUP BY period, entity_code, line_name HAVING MEASURE(unexplained_material_variances) > 0\n",
+        "ORDER BY period DESC\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "continuous_close",
+      "displayName": "Continuous Close",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Fin Recon Observability - Continuous Close\n",
+                "\n",
+                "Corvane Technologies (fictional, synthetic data). Every number comes from governed Unity Catalog metric views (gold_mv_*), the same definitions the Audit Workbench app and the Genie space use."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_dtc",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_last_close",
+                  "fields": [
+                    {
+                      "name": "days_to_close",
+                      "expression": "`days_to_close`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "days_to_close",
+                  "displayName": "Days to close (last close)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "T+{{@formatted}}"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Days to close (last close)",
+                "description": "Business days after month end to controller GO",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_proj",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_active_close",
+                  "fields": [
+                    {
+                      "name": "projected_days_to_close",
+                      "expression": "`projected_days_to_close`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "projected_days_to_close",
+                  "displayName": "Projected days to close",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "formatTemplate": "T+{{@formatted}}"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Projected days to close",
+                "description": "Active close, from task status",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_preclose",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_active_close",
+                  "fields": [
+                    {
+                      "name": "pre_close_completion_pct",
+                      "expression": "`pre_close_completion_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pre_close_completion_pct",
+                  "displayName": "Pre-close completion",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Pre-close completion",
+                "description": "Close tasks done before month end",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_pass",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_controls_kpi",
+                  "fields": [
+                    {
+                      "name": "control_pass_rate",
+                      "expression": "`control_pass_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "control_pass_rate",
+                  "displayName": "Control pass rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Control pass rate",
+                "description": "Latest control run, current close",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_open",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_exceptions_kpi",
+                  "fields": [
+                    {
+                      "name": "open_exceptions",
+                      "expression": "`open_exceptions`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "open_exceptions",
+                  "displayName": "Open exceptions",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open exceptions",
+                "description": "Current close, awaiting disposition",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_unrec",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon_kpi",
+                  "fields": [
+                    {
+                      "name": "unreconciled_amount_usd",
+                      "expression": "`unreconciled_amount_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "unreconciled_amount_usd",
+                  "displayName": "Unreconciled",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unreconciled",
+                "description": "Cash, AP, AR, payroll; current close",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "h_close",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Continuous close: days to close is falling toward T+1"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "close_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_close_trend",
+                  "fields": [
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    },
+                    {
+                      "name": "days_to_close",
+                      "expression": "`days_to_close`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "period",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "period"
+                },
+                "y": {
+                  "fieldName": "days_to_close",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "days to close",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Days to close by month (T+n)",
+                "description": "FY2025 traditional close vs continuous monitoring from 2026",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "preclose_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_close_trend",
+                  "fields": [
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    },
+                    {
+                      "name": "pre_close_completion_pct",
+                      "expression": "`pre_close_completion_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "period",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "period"
+                },
+                "y": {
+                  "fieldName": "pre_close_completion_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "pre close completion pct",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Close tasks completed before month end (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "h_controls",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Control health: full-population tests on every run"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "pass_by_module",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_controls_module",
+                  "fields": [
+                    {
+                      "name": "module",
+                      "expression": "`module`"
+                    },
+                    {
+                      "name": "control_pass_rate",
+                      "expression": "`control_pass_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "module",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "module"
+                },
+                "y": {
+                  "fieldName": "control_pass_rate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "control pass rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Control pass rate by module (latest run)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "exc_by_sev",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_exceptions_sev",
+                  "fields": [
+                    {
+                      "name": "module",
+                      "expression": "`module`"
+                    },
+                    {
+                      "name": "open_exceptions",
+                      "expression": "`open_exceptions`"
+                    },
+                    {
+                      "name": "ai_severity",
+                      "expression": "`ai_severity`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "module",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "module"
+                },
+                "y": {
+                  "fieldName": "open_exceptions",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "open exceptions",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "ai_severity",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "critical",
+                        "color": "#FF3621"
+                      },
+                      {
+                        "value": "high",
+                        "color": "#CC2B1A"
+                      },
+                      {
+                        "value": "medium",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "low",
+                        "color": "#7A99A6"
+                      },
+                      {
+                        "value": "not triaged",
+                        "color": "#C4CCD6"
+                      }
+                    ]
+                  },
+                  "displayName": "ai severity"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open exceptions by module and AI severity"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 13,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "h_risk",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Reconciliation and risk"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "unrec_by_entity",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recon_entity",
+                  "fields": [
+                    {
+                      "name": "entity_code",
+                      "expression": "`entity_code`"
+                    },
+                    {
+                      "name": "unreconciled_amount_usd",
+                      "expression": "`unreconciled_amount_usd`"
+                    },
+                    {
+                      "name": "recon_type",
+                      "expression": "`recon_type`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "entity_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "entity code"
+                },
+                "y": {
+                  "fieldName": "unreconciled_amount_usd",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "unreconciled amount usd",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "recon_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "recon type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unreconciled amount by entity and type (current close)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "key_failures",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_key_failures",
+                  "fields": [
+                    {
+                      "name": "control_id",
+                      "expression": "`control_id`"
+                    },
+                    {
+                      "name": "control_title",
+                      "expression": "`control_title`"
+                    },
+                    {
+                      "name": "exceptions",
+                      "expression": "`exceptions`"
+                    },
+                    {
+                      "name": "exception_amount_usd",
+                      "expression": "`exception_amount_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "control_id",
+                    "displayName": "Control"
+                  },
+                  {
+                    "fieldName": "control_title",
+                    "displayName": "Key control"
+                  },
+                  {
+                    "fieldName": "exceptions",
+                    "displayName": "Exceptions",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "exception_amount_usd",
+                    "displayName": "Amount",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Failed key controls (latest run)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 20,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "variances",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_variances",
+                  "fields": [
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    },
+                    {
+                      "name": "entity_code",
+                      "expression": "`entity_code`"
+                    },
+                    {
+                      "name": "line_name",
+                      "expression": "`line_name`"
+                    },
+                    {
+                      "name": "variance_vs_budget_usd",
+                      "expression": "`variance_vs_budget_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "period",
+                    "displayName": "Period"
+                  },
+                  {
+                    "fieldName": "entity_code",
+                    "displayName": "Entity"
+                  },
+                  {
+                    "fieldName": "line_name",
+                    "displayName": "Line"
+                  },
+                  {
+                    "fieldName": "variance_vs_budget_usd",
+                    "displayName": "Variance vs budget",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unexplained material variances (management review gaps)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 26,
+            "width": 12,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F9F7F4",
+        "dark": "#5A6F77"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#303F47"
+      },
+      "widgetBorderColor": {
+        "light": "#DCE0E2",
+        "dark": "#5A6F77"
+      },
+      "fontColor": {
+        "light": "#1B3139",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#FF3621",
+        "dark": "#FF3621"
+      },
+      "visualizationColors": [
+        "#1B3139",
+        "#FF3621",
+        "#7A99A6",
+        "#FFAB00",
+        "#CC2B1A",
+        "#C4CCD6",
+        "#243B44",
+        "#FABFBA",
+        "#0B6B3B",
+        "#04355D",
+        "#9ED6C4",
+        "#BAE1FC",
+        "#4A121A",
+        "#5A6F77",
+        "#E0654F",
+        "#99DDB4"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "applyModeEnabled": false
+  }
+}

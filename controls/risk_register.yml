@@ -1,0 +1,77 @@
+# Enterprise risk register (financial reporting scope).
+# Each risk links to the controls that mitigate it and one key risk indicator
+# (KRI): a governed metric-view measure with an appetite threshold. Residual
+# status on the Risk & Reporting page = inherent rating, adjusted by the latest
+# results of the linked controls and the KRI against its threshold.
+
+version: 2
+risks:
+  - risk_id: R1
+    title: Cash misstatement or misappropriation
+    category: Financial reporting
+    owner_role: Treasurer
+    inherent: {likelihood: 3, impact: 5}
+    appetite: low
+    kri: {metric_view: gold_mv_reconciliations, measure: unreconciled_amount_usd, threshold: 10000, direction: above_is_bad,
+          label: Unreconciled cash (USD)}
+    control_ids: [CASH-01, CASH-02, CASH-03, CASH-04]
+
+  - risk_id: R2
+    title: Receivables, payables or payroll misstated against the ledger
+    category: Financial reporting
+    owner_role: Controller
+    inherent: {likelihood: 3, impact: 4}
+    appetite: low
+    kri: {metric_view: gold_mv_reconciliations, measure: recon_in_tolerance_pct, threshold: 0.98, direction: below_is_bad,
+          label: Subledger tie-outs in tolerance}
+    control_ids: [SLR-01, SLR-02, SLR-03, SLR-04]
+
+  - risk_id: R3
+    title: Management override through journal entries
+    category: Fraud
+    owner_role: Chief Accounting Officer
+    inherent: {likelihood: 2, impact: 5}
+    appetite: very low
+    kri: {metric_view: gold_mv_journal_entries, measure: flagged_je_amount_usd, threshold: 250000, direction: above_is_bad,
+          label: Flagged manual journal value (USD)}
+    control_ids: [JET-01, JET-02, JET-03, JET-04, JET-05, SLR-04, PAM-03]
+
+  - risk_id: R4
+    title: Inappropriate or residual access to financial systems
+    category: IT general controls
+    owner_role: IT Security Manager
+    inherent: {likelihood: 3, impact: 4}
+    appetite: low
+    kri: {metric_view: gold_mv_access_risk, measure: sod_conflict_users, threshold: 0, direction: above_is_bad,
+          label: Users with SoD conflicts}
+    control_ids: [PAM-01, PAM-02, PAM-03, PAM-04, JET-01]
+
+  - risk_id: R5
+    title: Unsupported liabilities or payments
+    category: Financial reporting
+    owner_role: Controller
+    inherent: {likelihood: 2, impact: 4}
+    appetite: low
+    kri: {metric_view: gold_mv_exceptions, measure: evidence_attached_pct, threshold: 0.95, direction: below_is_bad,
+          label: Exceptions with evidence attached}
+    control_ids: [SLR-05, CASH-04, PAM-01]
+
+  - risk_id: R6
+    title: Ineffective management review of results
+    category: Financial reporting
+    owner_role: CFO
+    inherent: {likelihood: 3, impact: 3}
+    appetite: moderate
+    kri: {metric_view: gold_mv_financials, measure: unexplained_material_variances, threshold: 0, direction: above_is_bad,
+          label: Unexplained material variances}
+    control_ids: [FPA-01, FPA-02, FPA-03, FPA-04, FSC-01, FSC-02, FSC-03, FSC-04]
+
+  - risk_id: R7
+    title: Interface or data-feed integrity failure
+    category: Data and technology
+    owner_role: Head of Finance Systems
+    inherent: {likelihood: 4, impact: 3}
+    appetite: low
+    kri: {metric_view: gold_mv_control_health, measure: controls_failed, threshold: 0, direction: above_is_bad,
+          label: Failed controls (latest run)}
+    control_ids: [DQ-01, DQ-02, DQ-03, CASH-01, PLT-01]

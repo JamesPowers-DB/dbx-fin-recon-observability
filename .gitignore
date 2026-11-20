@@ -1,0 +1,33 @@
+# Project Notes
+_BUILD
+_demo
+.claude
+.vscode
+skill_feedback.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Databricks bundle + app build output
+.DS_Store
+.databricks/
+apps/*/frontend/node_modules/
+apps/*/frontend/dist/
+apps/*/frontend/tsconfig.tsbuildinfo
+apps/*/.venv/
+.env
+
+# Customer-identifying source material. Never commit.
+_demo/inputs/
+
+# Local scratch
+.scratch/
+
+# Build-time copy of controls/pipelines/ai for the app checklist drawer
+apps/*/backend/repo_snapshot/

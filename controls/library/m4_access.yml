@@ -1,0 +1,96 @@
+# M4 Privileged access (ITGC): Oracle security vs Workday HR.
+module: M4
+module_name: Privileged access (ITGC)
+slice:
+  sources: [oracle/per_user_roles.csv, oracle/per_user_role_requests.csv]
+  pipelines: [pipelines/m4_access]
+  tables_owned: [bronze_oracle_per_user_roles, bronze_oracle_per_user_role_requests, silver_role_grant, silver_role_request,
+                 silver_m4_grant_checks, gold_fact_user_access, gold_m4_population, gold_m4_exceptions]
+controls:
+  - control_id: PAM-01
+    version: 1
+    title: No segregation-of-duties conflicts in ERP roles
+    objective: No user holds both roles of a conflicting pair at the same time during the period.
+    risk_ids: [R4, R5]
+    key_control: true
+    assertions: [itgc_access]
+    nature: {type: preventive, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: continuous
+    owner_role: IT Security Engineer
+    population: {dataset: gold_fact_user_access, unit: user-month, description: Active non-system ERP users}
+    parameters: {conflicts: "GL_JOURNAL_ENTRY+GL_JOURNAL_APPROVER;AP_INVOICE_ENTRY+AP_PAYMENT_RELEASE;VENDOR_MASTER_MAINT+AP_PAYMENT_RELEASE"}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m4_exceptions}
+    exceptions_dataset: gold_m4_exceptions
+    test_sql_file: pipelines/m4_access/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 5.1, documents: []}
+    signoff: {preparer_role: IT Security Engineer, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: PAM-02
+    version: 1
+    title: ERP access removed within one business day of termination
+    objective: When Workday records a termination, the Oracle user is end-dated within one business day.
+    risk_ids: [R4]
+    key_control: true
+    assertions: [itgc_access]
+    nature: {type: preventive, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: daily
+    owner_role: IT Security Engineer
+    population: {dataset: gold_fact_user_access, unit: termination, description: Terminated workers with an ERP user}
+    parameters: {removal_bd: 1}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m4_exceptions}
+    exceptions_dataset: gold_m4_exceptions
+    test_sql_file: pipelines/m4_access/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 5.2, documents: []}
+    signoff: {preparer_role: IT Security Engineer, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: PAM-03
+    version: 1
+    title: No postings by terminated users
+    objective: No GL journal is created by a user after their Workday termination date (independent test of PAM-02).
+    risk_ids: [R4, R3]
+    key_control: true
+    assertions: [occurrence]
+    nature: {type: detective, automation: automated, line_of_defense: 3}
+    lane: assurance
+    frequency: continuous
+    owner_role: Internal Audit
+    population: {dataset: gold_fact_user_access, unit: journal, description: Journals by users with a termination date}
+    parameters: {}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_m4_exceptions}
+    exceptions_dataset: gold_m4_exceptions
+    test_sql_file: pipelines/m4_access/gold/control_tests.sql
+    evidence: {policy_ref: POL-FC-01 5.3, documents: []}
+    signoff: {preparer_role: Internal Audit Senior, reviewer_role: Audit Manager, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25
+
+  - control_id: PAM-04
+    version: 1
+    title: Privileged role assignments have an approved request
+    objective: Every privileged role grant is preceded by an approved provisioning request for the same user and role.
+    risk_ids: [R4]
+    key_control: false
+    assertions: [itgc_access]
+    nature: {type: preventive, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: continuous
+    owner_role: IT Security Engineer
+    population: {dataset: silver_m4_grant_checks, unit: grant, description: Privileged role grants}
+    parameters: {}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: expectation, job: run_controls, task: test_update, dataset: silver_m4_grant_checks, expectation: ctl_pam_04}
+    exceptions_dataset: gold_m4_exceptions
+    test_sql_file: pipelines/m4_access/silver/grant_checks.sql
+    evidence: {policy_ref: POL-FC-01 5.4, documents: []}
+    signoff: {preparer_role: IT Security Engineer, reviewer_role: Controller, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 25

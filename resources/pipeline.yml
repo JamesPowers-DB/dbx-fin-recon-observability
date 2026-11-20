@@ -1,0 +1,73 @@
+resources:
+  pipelines:
+    lakehouse:
+      name: fin-recon-observability-lakehouse-${bundle.target}
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      continuous: false
+      development: false
+      photon: true
+      # The pipeline's own telemetry (flow progress, expectation pass/fail,
+      # lineage) published to UC. record_results copies per-update metrics
+      # into meta_pipeline_update_metrics for the Sankey and the checklist.
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${var.schema}
+        name: meta_pipeline_event_log
+      libraries:
+        # Explicit list, grouped by domain then layer. No globs: the list is the
+        # dependency manifest in review. Modules read core / documents / controls
+        # silver only, never another module; the controls spine unions modules.
+        # ------------------------------------------------------------ core (Oracle GL + masters, Workday workers)
+        - file: { path: ../pipelines/core/bronze/oracle_gl.sql }
+        - file: { path: ../pipelines/core/bronze/oracle_masters.sql }
+        - file: { path: ../pipelines/core/bronze/workday_workers.sql }
+        - file: { path: ../pipelines/core/silver/reference.sql }
+        - file: { path: ../pipelines/core/silver/gl_journal.sql }
+        - file: { path: ../pipelines/core/gold/calendar.sql }
+        - file: { path: ../pipelines/core/gold/dims_and_gl.sql }
+        # ------------------------------------------------------------ documents (PDF evidence, policy)
+        - file: { path: ../pipelines/documents/bronze/docs_files.sql }
+        - file: { path: ../pipelines/documents/silver/document_parsed.sql }
+        - file: { path: ../pipelines/documents/silver/document_fields.sql }
+        # ------------------------------------------------------------ M1 cash (bank camt.053 vs GL cash)
+        - file: { path: ../pipelines/m1_cash/bronze/bank_camt053.sql }
+        - file: { path: ../pipelines/m1_cash/silver/bank_entries.sql }
+        - file: { path: ../pipelines/m1_cash/silver/statement_continuity.sql }
+        - file: { path: ../pipelines/m1_cash/gold/cash_match.sql }
+        - file: { path: ../pipelines/m1_cash/gold/cash_recon.sql }
+        - file: { path: ../pipelines/m1_cash/gold/control_tests.sql }
+        # ------------------------------------------------------------ M2 subledger-to-GL (Oracle AP, Salesforce, Workday payroll)
+        - file: { path: ../pipelines/m2_subledger/bronze/sources.sql }
+        - file: { path: ../pipelines/m2_subledger/silver/subledger_docs.sql }
+        - file: { path: ../pipelines/m2_subledger/gold/subledger_recon.sql }
+        - file: { path: ../pipelines/m2_subledger/gold/control_tests.sql }
+        # ------------------------------------------------------------ M3 journal entry testing
+        - file: { path: ../pipelines/m3_journals/silver/journal_test_flags.sql }
+        - file: { path: ../pipelines/m3_journals/gold/journal_entries.sql }
+        - file: { path: ../pipelines/m3_journals/gold/control_tests.sql }
+        # ------------------------------------------------------------ M4 privileged access (ITGC)
+        - file: { path: ../pipelines/m4_access/bronze/oracle_security.sql }
+        - file: { path: ../pipelines/m4_access/silver/grant_checks.sql }
+        - file: { path: ../pipelines/m4_access/gold/user_access.sql }
+        - file: { path: ../pipelines/m4_access/gold/control_tests.sql }
+        # ------------------------------------------------------------ M5 statements and FP&A (Anaplan)
+        - file: { path: ../pipelines/m5_statements/bronze/anaplan.sql }
+        - file: { path: ../pipelines/m5_statements/silver/plan.sql }
+        - file: { path: ../pipelines/m5_statements/gold/statements.sql }
+        - file: { path: ../pipelines/m5_statements/silver/variance_base.sql }
+        - file: { path: ../pipelines/m5_statements/gold/variance_lines.sql }
+        - file: { path: ../pipelines/m5_statements/gold/control_tests.sql }
+        # ------------------------------------------------------------ controls spine (library, review state, DQ, union)
+        - file: { path: ../pipelines/controls/bronze/close_tool.sql }
+        - file: { path: ../pipelines/controls/silver/library.sql }
+        - file: { path: ../pipelines/controls/silver/review_state.sql }
+        - file: { path: ../pipelines/controls/silver/dq_gl_line_integrity.sql }
+        - file: { path: ../pipelines/controls/gold/dq_tests.sql }
+        - file: { path: ../pipelines/controls/gold/spine.sql }
+      configuration:
+        # Exposed inside SQL as ${catalog}, ${schema}, ${raw_volume}.
+        catalog: ${var.catalog}
+        schema: ${var.schema}
+        raw_volume: ${var.raw_volume}

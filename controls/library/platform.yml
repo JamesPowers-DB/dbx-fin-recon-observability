@@ -1,0 +1,96 @@
+# Platform and data quality: the feeds every module depends on, and the
+# monitoring-integrity control that tests the monitoring itself.
+module: DQ
+module_name: Data quality and monitoring integrity
+slice:
+  sources: []
+  pipelines: [pipelines/controls/gold/dq_tests.sql]
+  tables_owned: [silver_dq_gl_line_integrity, gold_dq_population, gold_dq_exceptions, meta_control_runs]
+controls:
+  - control_id: DQ-01
+    version: 1
+    title: Source feeds arrive within their service level
+    objective: Oracle, Salesforce and bank feeds have data through yesterday (one business day SLA); Workday payroll within 16 days; Anaplan has the current month.
+    risk_ids: [R7]
+    key_control: false
+    assertions: [completeness]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: daily
+    owner_role: Head of Finance Systems
+    population: {dataset: gold_dq_population, unit: feed, description: Source feeds and bank accounts}
+    parameters: {sla_bd: 1, payroll_sla_days: 16}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_dq_exceptions}
+    exceptions_dataset: gold_dq_exceptions
+    test_sql_file: pipelines/controls/gold/dq_tests.sql
+    evidence: {policy_ref: POL-FC-01 7.1, documents: []}
+    signoff: {preparer_role: Controller, reviewer_role: CFO, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 0
+
+  - control_id: DQ-02
+    version: 1
+    title: Unexpected source schema changes detected
+    objective: Records that do not fit a feed's contract land in _rescued_data and are triaged before close.
+    risk_ids: [R7]
+    key_control: false
+    assertions: [completeness, accuracy]
+    nature: {type: detective, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: continuous
+    owner_role: Head of Finance Systems
+    population: {dataset: gold_dq_population, unit: file, description: Source files ingested to bronze}
+    parameters: {}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: pipeline_dataset, job: run_controls, task: test_update, dataset: gold_dq_exceptions}
+    exceptions_dataset: gold_dq_exceptions
+    test_sql_file: pipelines/controls/gold/dq_tests.sql
+    evidence: {policy_ref: POL-FC-01 7.2, documents: []}
+    signoff: {preparer_role: Controller, reviewer_role: CFO, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 0
+
+  - control_id: DQ-03
+    version: 1
+    title: Journal lines use valid accounts and entities
+    objective: Every GL journal line references an account in the chart of accounts and a known legal entity.
+    risk_ids: [R7]
+    key_control: false
+    assertions: [accuracy]
+    nature: {type: preventive, automation: automated, line_of_defense: 1}
+    lane: management
+    frequency: continuous
+    owner_role: Controller
+    population: {dataset: silver_dq_gl_line_integrity, unit: journal line, description: All GL journal lines}
+    parameters: {}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: expectation, job: run_controls, task: test_update, dataset: silver_dq_gl_line_integrity, expectation: ctl_dq_03}
+    exceptions_dataset: gold_dq_exceptions
+    test_sql_file: pipelines/controls/silver/dq_gl_line_integrity.sql
+    evidence: {policy_ref: POL-FC-01 7.3, documents: []}
+    signoff: {preparer_role: Controller, reviewer_role: CFO, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 0
+
+  - control_id: PLT-01
+    version: 1
+    title: Monitoring integrity (the monitor is monitored)
+    objective: Each run uses a versioned control library, executes every operating control, detects every planted test case (recall 100%), and its ledger counts equal the governed metric views. A gap fails the run.
+    risk_ids: [R7]
+    key_control: true
+    assertions: [completeness, accuracy]
+    nature: {type: detective, automation: automated, line_of_defense: 3}
+    lane: assurance
+    frequency: continuous
+    owner_role: Internal Audit
+    population: {dataset: meta_control_runs, unit: run, description: Every run_controls run}
+    parameters: {required_recall: 1.0}
+    tolerance: {max_exceptions: 0}
+    executed_by: {kind: job_task, job: run_controls, task: gate_controls}
+    exceptions_dataset: meta_control_results
+    test_sql_file: controls/runtime/gate_controls.py
+    evidence: {policy_ref: POL-FC-01 8.1, documents: []}
+    signoff: {preparer_role: Internal Audit Senior, reviewer_role: Audit Manager, four_eyes: true}
+    lifecycle: {state: operating, effective_from: 2026-01-01}
+    traditional_sample_size: 0

@@ -1,0 +1,58 @@
+bundle:
+  name: dbx-fin-recon-observability
+
+include:
+  - resources/*.yml
+  - jobs/*.yml
+
+variables:
+  catalog:
+    description: Existing Unity Catalog catalog to deploy into (the bundle does not create it; pass --var catalog=<name>)
+    default: main
+  schema:
+    description: >
+      Single schema holding every layer. Tables are layer-prefixed
+      (bronze_ / silver_ / gold_ / ml_ / meta_); metric views are gold_mv_*.
+    default: fin_recon_observability
+  raw_volume:
+    description: Managed volume (under schema) holding source-system files
+    default: files
+  warehouse_id:
+    description: Serverless SQL warehouse used by the app (OBO queries), the dashboard, the alert, and the triage SQL task
+    default: ""
+  lakebase_project:
+    description: Lakebase Autoscaling project id (bundle-managed) holding app review state
+    default: fin-recon-observability
+  triage_endpoint:
+    description: Pay-per-token FMAPI endpoint for batch exception triage (ai_query)
+    default: databricks-claude-haiku-5-5
+  agent_endpoint:
+    description: Pay-per-token FMAPI endpoint for the in-app investigator agent
+    default: databricks-claude-sonnet-5-5
+
+sync:
+  include:
+    - apps/*/frontend/dist/**
+    - apps/*/backend/repo_snapshot/**   # gitignored build copy of controls/pipelines/ai (checklist drawer)
+  exclude:
+    - apps/*/frontend/node_modules/**
+    - apps/*/.venv/**
+    - "**/__pycache__/**"
+    - "**/*.pyc"
+    - _demo/**
+    - _BUILD/**
+    - .claude/**            # local agent skills (symlinks into the skill store)
+    - skill_feedback.md
+
+targets:
+  # Single target. mode: production gives deterministic names (no dev prefix).
+  # Everything runs as the deployer; apps reject a different run_as, so the
+  # long-term owner of the scheduled refresh should be the one who deploys.
+  prod:
+    mode: production
+    default: true
+    # The workspace host comes from the CLI profile (--profile <name>).
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      user_name: ${workspace.current_user.userName}

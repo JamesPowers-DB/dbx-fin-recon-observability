@@ -1,0 +1,29 @@
+resources:
+  jobs:
+    provision_genie:
+      name: fin-recon-observability-provision-genie-${bundle.target}
+      description: >
+        Create or refresh the Genie space idempotently by TITLE
+        (genie/genie_space_def.py: TITLE_BASE). Data sources are the seven
+        gold_mv_* metric views only. The app resolves the space id by the same
+        title at runtime, so nothing is written back into app config. Run
+        after apply_metric_views.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+      tasks:
+        - task_key: provision_genie
+          environment_key: default
+          notebook_task:
+            notebook_path: ../genie/provision_genie_space_job.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              warehouse_id: ${var.warehouse_id}
+              target: ${bundle.target}
+      queue:
+        enabled: true

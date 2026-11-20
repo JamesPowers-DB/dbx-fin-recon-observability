@@ -1,0 +1,33 @@
+resources:
+  jobs:
+    grant_app_sp:
+      name: fin-recon-observability-grant-app-sp-${bundle.target}
+      description: >
+        Grant the app's auto-created service principal USE CATALOG, schema-level
+        USE SCHEMA + SELECT + READ VOLUME (covers current and future tables,
+        metric views, and evidence PDFs), and CAN_RUN on the Genie space
+        (resolved by title). The SP is resolved from the deployed app; nothing
+        to hand-edit. Job permissions (CAN_MANAGE_RUN on run_controls and
+        simulate_activity) and the Lakebase database come from app resource
+        bindings, not from this job. Run after the app is deployed and the
+        Genie space exists.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+      tasks:
+        - task_key: grant_app_sp
+          environment_key: default
+          notebook_task:
+            notebook_path: ../scripts/grant_app_sp_job.py
+            source: WORKSPACE
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              raw_volume: ${var.raw_volume}
+              app_name: audit-workbench-${bundle.target}
+              target: ${bundle.target}
+      queue:
+        enabled: true

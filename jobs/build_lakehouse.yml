@@ -1,0 +1,20 @@
+resources:
+  jobs:
+    build_lakehouse:
+      name: fin-recon-observability-build-lakehouse-${bundle.target}
+      description: >
+        FULL refresh of the Lakeflow pipeline (bronze -> silver -> gold, every
+        module's control tests, and the controls spine) over the files in
+        /Volumes/${var.catalog}/${var.schema}/${var.raw_volume}/. Bronze tables
+        are streaming, so regenerated files are only re-read by a full
+        refresh. Run after generate_data. Day-to-day incremental updates
+        happen inside run_controls (task test_update), never here.
+      max_concurrent_runs: 1
+      email_notifications: {}
+      tasks:
+        - task_key: run_lakehouse_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+            full_refresh: true
+      queue:
+        enabled: true
